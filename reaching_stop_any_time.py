@@ -7,6 +7,7 @@ import cv2
 import numpy as np
 import pandas as pd
 
+
 def get_action_time_stamp(path):
     """TODO: Docstring for get_action_time_stamp.
 
@@ -67,12 +68,11 @@ class Experiment(object):
         self._values['subInit'] = self._sub_init
         self._values.update(self._constants)
 
-
     def get_expt_signature(self, sep="_", prefix="expt", postfix=""):
         return dict_to_string(self._values, sep, prefix, postfix)
 
 
-    def __call__(self, trial=None, design={}, writer=None):
+    def __call__(self, trial=None, design={}, writer=None, inferred_correct=0, inferred_incorrect=0):
         for (i, d) in enumerate(design):
             #here is critial: each d must be passed to the trial callable
             result = trial(d)
@@ -80,11 +80,9 @@ class Experiment(object):
             to_writer_dic.update(d)
             to_writer_dic.update(result)
             writer(**to_writer_dic)
-            print((len(design) - i))
 
         cv2.destroyAllWindows()
-
-
+        
 def get_file_name(path="", names=[], prefix="", post_fix="", connector="_"):
     file_name = prefix + connector.join([str(n) for n in names]) + post_fix
     return os.path.join(path, file_name)
@@ -235,8 +233,9 @@ class Display(object):
 
         self.inferred_target = None
 
-        cv2.namedWindow(self._name, cv2.WND_PROP_AUTOSIZE)
-        cv2.setWindowProperty(self._name, cv2.WND_PROP_AUTOSIZE, cv2.WND_PROP_AUTOSIZE)
+#Sets the screen properties, right now is in full screen
+        cv2.namedWindow(self._name, cv2.WINDOW_NORMAL)
+        cv2.setWindowProperty(self._name, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
         cv2.moveWindow(self._name, wx, wy)
         cv2.setMouseCallback(self._name, self.update_mouse)
 
@@ -259,9 +258,10 @@ class Display(object):
             self.right_click = True
 
 
-    def draw_preview(self, image):
+    def draw_preview(self, image, percent):
         # print("DRAW REST OBJECT")
         # print(self.left_click)
+        cv2.putText(image, "Your progress: {}% correct!".format(int(percent*100)), (100,50), cv2.FONT_HERSHEY_TRIPLEX, 0.6, 255)
         rest_pos = (605, 510)
         draw_rest_object(image, (0, 0, 0), (605, 510))
         cropped = self.crop_image(image)
@@ -344,7 +344,8 @@ class Trial():
                  # event_segmentation_path="",
                  truth_df=None,
                  display = None,
-                 practice=False
+                 practice=False,
+                 trial_num=0
                  ):
         self.name = name
         self.image_path = image_path
@@ -355,7 +356,11 @@ class Trial():
         self.inferred_target = None
         self.result = {}
         self.practice=practice
-
+        
+        self.result["percent"] = 1
+        self.trial_num = trial_num
+        self.correct = 0
+        self.incorrect = 0
 
 
     def get_images(self, actor, event, percent):
@@ -383,6 +388,10 @@ class Trial():
         actor = design_value["actor"]
         event = design_value["event"]
         percent = design_value["percent"]
+        
+        changePercent = self.result["percent"]
+        self.trial_num +=1
+
 
         # get all images list in Clip_event images folder
         images = self.get_images(actor, event, percent)
@@ -390,7 +399,8 @@ class Trial():
         # truth = self.truth_df[(self.truth_df.Actor==actor)&(self.truth_df.Event==event)].iloc[0].Truth
         self.result["target"] = str(self.truth_df[index].iloc[0].Truth)
         self.result["total_images"] = len(images)
-        self.display.draw_preview(images[0])
+
+        self.display.draw_preview(images[0],changePercent)
         # print("START")
         last_frame = self.display.draw_image_sequence(images)
 
@@ -412,6 +422,19 @@ class Trial():
 
                 self.result["inferred_target"] = inferred_target
                 self.mouse_click = False
+                if self.result["inferred_target"] == self.result["target"]:
+                    self.correct += 1
+                    changePercent = self.correct/self.trial_num
+                    self.result["percent"] = changePercent
+                    print("{} correct of {}".format(self.correct, self.trial_num))
+                elif self.result["inferred_target"] != self.result["target"]:
+                    self.incorrect +=1
+                    changePercent = 1-(self.incorrect/self.trial_num)
+                    self.result["percent"] = changePercent
+                    print("current percent = {}".format(changePercent))
+                    print("{} incorrect of {}".format(self.incorrect, self.trial_num))
+                    
+
                 return self.result
             else:
                 new_images = images[counter:]
@@ -435,7 +458,7 @@ class Trial():
 
 def main():
     expt = Experiment(name="reaching_stop_any_time", sub_num="2", sub_init="test", action="reaching") # change sub_num
-    project_path = "C:/Users/mitadm/Desktop/Grasping-master"
+    project_path = "C:/Users/Roksi/Desktop/Grasping-master"
     data_path = os.path.join(project_path, "data")
     image_path = os.path.join(data_path, "images")
     skeleton_path = os.path.join(data_path, "skeletons")
@@ -444,7 +467,7 @@ def main():
 
     event_path = os.path.join(data_path, "events")
     # event_segmentation_path = os.path.join(event_path, "segmentations")
-    truth_path = os.path.join(event_path, "reaching_ground_truth.xlsx")
+    truth_path = os.path.join(event_path, "C:/Users/Roksi/Desktop/Grasping-master/data/events/reaching_ground_truth.xlsx")
 
     # Tao   14  B4
     # Tao 15  W1
